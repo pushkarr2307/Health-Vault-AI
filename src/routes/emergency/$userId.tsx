@@ -1,20 +1,21 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
-import { Loader2 } from 'lucide-react'
-
-import { AppShell } from '@/components/AppShell'
+import { Loader2, Phone, AlertTriangle, User, Heart } from 'lucide-react'
 
 import { supabase } from '@/integrations/supabase/client'
-import { useAuth } from '@/hooks/use-auth'
 
 export const Route = createFileRoute('/emergency/$userId')({
-  head: () => ({ meta: [{ title: 'Emergency Profile — HealthVault AI' }] }),
+  head: () => ({
+    meta: [
+      { title: 'Emergency Profile — HealthVault AI' },
+      { name: 'viewport', content: 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no' },
+    ],
+  }),
   component: EmergencyProfile,
 })
 
-type EmergencyProfileRow = {
-  id: string
-  user_id: string
+type EmergencyData = {
+  full_name: string | null
   blood_group: string | null
   allergies: string | null
   medical_conditions: string | null
@@ -26,312 +27,281 @@ type EmergencyProfileRow = {
   emergency_notes: string | null
 }
 
-type FormState = {
-  blood_group: string
-  allergies: string
-  medical_conditions: string
-  current_medications: string
-  emergency_contact_name: string
-  emergency_contact_phone: string
-  doctor_name: string
-  doctor_phone: string
-  emergency_notes: string
-}
-
-const emptyForm: FormState = {
-  blood_group: '',
-  allergies: '',
-  medical_conditions: '',
-  current_medications: '',
-  emergency_contact_name: '',
-  emergency_contact_phone: '',
-  doctor_name: '',
-  doctor_phone: '',
-  emergency_notes: '',
-}
-
-function normalizeNullable(v: string) {
-  const trimmed = v.trim()
-  return trimmed.length ? trimmed : null
-}
-
 function EmergencyProfile() {
-  const { user } = useAuth()
   const params = Route.useParams()
+  const userId = params.userId
 
   const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [status, setStatus] = useState<string | null>(null)
-
-  const [recordId, setRecordId] = useState<string | null>(null)
-  const [form, setForm] = useState<FormState>(emptyForm)
+  const [found, setFound] = useState(false)
+  const [data, setData] = useState<EmergencyData | null>(null)
 
   useEffect(() => {
     let mounted = true
 
     ;(async () => {
       setLoading(true)
-      setError(null)
-      setStatus(null)
+      setFound(false)
 
-      const { data, error: fetchErr } = await supabase
-        .from('emergency_profiles')
-        .select('*')
-        .eq('user_id', params.userId)
-        .maybeSingle<EmergencyProfileRow>()
+      try {
+        // Fetch patient name from profiles
+        const profilePromise = supabase
+          .from('profiles')
+          .select('full_name')
+          .eq('id', userId)
+          .maybeSingle<{ full_name: string | null }>()
 
-      if (!mounted) return
+        // Fetch emergency profile data
+        const emergencyPromise = supabase
+          .from('emergency_profiles')
+          .select('*')
+          .eq('user_id', userId)
+          .maybeSingle<{
+            blood_group: string | null
+            allergies: string | null
+            medical_conditions: string | null
+            current_medications: string | null
+            emergency_contact_name: string | null
+            emergency_contact_phone: string | null
+            doctor_name: string | null
+            doctor_phone: string | null
+            emergency_notes: string | null
+          }>()
 
-      if (fetchErr) {
-        setError(fetchErr.message)
-        setForm(emptyForm)
-        setRecordId(null)
+        const [profileResult, emergencyResult] = await Promise.all([
+          profilePromise,
+          emergencyPromise,
+        ])
+
+        if (!mounted) return
+
+        const fullName = profileResult.data?.full_name ?? null
+        const emergencyData = emergencyResult.data
+
+        if (!emergencyData) {
+          setFound(false)
+          setData(null)
+          setLoading(false)
+          return
+        }
+
+        setFound(true)
+        setData({
+          full_name: fullName,
+          blood_group: emergencyData.blood_group ?? null,
+          allergies: emergencyData.allergies ?? null,
+          medical_conditions: emergencyData.medical_conditions ?? null,
+          current_medications: emergencyData.current_medications ?? null,
+          emergency_contact_name: emergencyData.emergency_contact_name ?? null,
+          emergency_contact_phone: emergencyData.emergency_contact_phone ?? null,
+          doctor_name: emergencyData.doctor_name ?? null,
+          doctor_phone: emergencyData.doctor_phone ?? null,
+          emergency_notes: emergencyData.emergency_notes ?? null,
+        })
         setLoading(false)
-        return
-      }
-
-      if (!data) {
-        setForm(emptyForm)
-        setRecordId(null)
+      } catch {
+        if (!mounted) return
+        setFound(false)
+        setData(null)
         setLoading(false)
-        return
       }
-
-      setRecordId(data.id)
-      setForm({
-        blood_group: data.blood_group ?? '',
-        allergies: data.allergies ?? '',
-        medical_conditions: data.medical_conditions ?? '',
-        current_medications: data.current_medications ?? '',
-        emergency_contact_name: data.emergency_contact_name ?? '',
-        emergency_contact_phone: data.emergency_contact_phone ?? '',
-        doctor_name: data.doctor_name ?? '',
-        doctor_phone: data.doctor_phone ?? '',
-        emergency_notes: data.emergency_notes ?? '',
-      })
-      setLoading(false)
     })()
 
     return () => {
       mounted = false
     }
-  }, [params.userId])
+  }, [userId])
 
-  const save = async () => {
-    // Keep behavior consistent with existing QR/profile flow: only allow saving for signed-in user.
-    if (!user) return
-    if (user.id !== params.userId) return
-
-    setSaving(true)
-    setError(null)
-    setStatus(null)
-
-    const payload = {
-      user_id: user.id,
-      blood_group: normalizeNullable(form.blood_group),
-      allergies: normalizeNullable(form.allergies),
-      medical_conditions: normalizeNullable(form.medical_conditions),
-      current_medications: normalizeNullable(form.current_medications),
-      emergency_contact_name: normalizeNullable(form.emergency_contact_name),
-      emergency_contact_phone: normalizeNullable(form.emergency_contact_phone),
-      doctor_name: normalizeNullable(form.doctor_name),
-      doctor_phone: normalizeNullable(form.doctor_phone),
-      emergency_notes: normalizeNullable(form.emergency_notes),
-    }
-
-    try {
-      if (recordId) {
-        const { error: updErr } = await supabase
-          .from('emergency_profiles')
-          .update(payload)
-          .eq('id', recordId)
-
-        if (updErr) throw updErr
-        setStatus('Emergency profile saved.')
-      } else {
-        const { error: insErr } = await supabase.from('emergency_profiles').insert(payload)
-        if (insErr) throw insErr
-        setStatus('Emergency profile saved.')
-
-        const { data: createdData, error: createdErr } = await supabase
-          .from('emergency_profiles')
-          .select('id')
-          .eq('user_id', user.id)
-          .maybeSingle<{ id: string }>()
-
-        if (!createdErr && createdData?.id) setRecordId(createdData.id)
-      }
-    } catch (e: any) {
-      setError(e?.message ?? 'Failed to save emergency profile.')
-    } finally {
-      setSaving(false)
-    }
-  }
-
+  // --- Loading State ---
   if (loading) {
     return (
-      <AppShell>
-        <div className='flex items-center justify-center py-16'>
-          <Loader2 className='animate-spin text-[var(--muted-ink)]' size={22} />
+      <div className="flex min-h-screen items-center justify-center bg-slate-50">
+        <div className="flex flex-col items-center gap-4">
+          <Loader2 className="h-10 w-10 animate-spin text-emerald-600" />
+          <p className="text-sm font-medium text-slate-500">Loading emergency profile…</p>
         </div>
-      </AppShell>
+      </div>
     )
   }
 
-  const canSave = !!user && user.id === params.userId
-
-  return (
-    <AppShell>
-      <div className='mx-auto w-full max-w-2xl rounded-2xl border border-[#E5E7EB] bg-white p-8 shadow-sm'>
-        <div>
-          <h2 className='text-xl font-bold'>Emergency Profile</h2>
-          <p className='mt-1 text-sm text-[var(--muted-ink)]'>
-            Keep your critical medical details up to date for emergency responders.
+  // --- Not Found State ---
+  if (!found || !data) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
+        <div className="w-full max-w-md rounded-2xl border border-red-200 bg-white p-8 text-center shadow-lg">
+          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-red-50">
+            <AlertTriangle className="h-8 w-8 text-red-500" />
+          </div>
+          <h1 className="text-2xl font-bold text-slate-900">Emergency Profile Not Found</h1>
+          <p className="mt-3 text-base text-slate-500">
+            This patient has not set up an emergency profile yet. Please check the QR code or ask
+            them to update their emergency information.
           </p>
         </div>
-
-        <form
-          className='mt-8 space-y-5'
-          onSubmit={(e) => {
-            e.preventDefault()
-            if (canSave) save()
-          }}
-        >
-          <div className='grid gap-5 sm:grid-cols-2'>
-            <Field
-              label='Blood Group'
-              value={form.blood_group}
-              onChange={(v) => setForm((f) => ({ ...f, blood_group: v }))}
-              disabled={!canSave}
-            />
-
-            <Field
-              label='Emergency Contact Phone'
-              value={form.emergency_contact_phone}
-              onChange={(v) => setForm((f) => ({ ...f, emergency_contact_phone: v }))}
-              disabled={!canSave}
-            />
-
-            <Textarea
-              label='Allergies'
-              value={form.allergies}
-              onChange={(v) => setForm((f) => ({ ...f, allergies: v }))}
-              disabled={!canSave}
-            />
-
-            <Textarea
-              label='Medical Conditions'
-              value={form.medical_conditions}
-              onChange={(v) => setForm((f) => ({ ...f, medical_conditions: v }))}
-              disabled={!canSave}
-            />
-
-            <Textarea
-              label='Current Medications'
-              value={form.current_medications}
-              onChange={(v) => setForm((f) => ({ ...f, current_medications: v }))}
-              disabled={!canSave}
-            />
-
-            <Field
-              label='Emergency Contact Name'
-              value={form.emergency_contact_name}
-              onChange={(v) => setForm((f) => ({ ...f, emergency_contact_name: v }))}
-              disabled={!canSave}
-            />
-
-            <Field
-              label='Doctor Name'
-              value={form.doctor_name}
-              onChange={(v) => setForm((f) => ({ ...f, doctor_name: v }))}
-              disabled={!canSave}
-            />
-
-            <Field
-              label='Doctor Phone'
-              value={form.doctor_phone}
-              onChange={(v) => setForm((f) => ({ ...f, doctor_phone: v }))}
-              disabled={!canSave}
-            />
-          </div>
-
-          <Textarea
-            label='Emergency Notes'
-            value={form.emergency_notes}
-            onChange={(v) => setForm((f) => ({ ...f, emergency_notes: v }))}
-            disabled={!canSave}
-          />
-
-          {error && <p className='rounded-lg bg-red-50 px-3 py-2 text-xs text-red-600'>{error}</p>}
-          {status && <p className='rounded-lg bg-emerald-50 px-3 py-2 text-xs text-[var(--emerald)]'>{status}</p>}
-
-          <div className='flex justify-end pt-2'>
-            <button
-              type='submit'
-              disabled={!canSave || saving}
-              className='inline-flex items-center gap-2 rounded-xl bg-[var(--emerald)] px-6 py-2.5 text-sm font-semibold text-white shadow-sm hover:opacity-90 disabled:opacity-60'
-            >
-              {saving && <Loader2 size={16} className='animate-spin' />}
-              Save
-            </button>
-          </div>
-        </form>
       </div>
-    </AppShell>
+    )
+  }
+
+  // --- Data Available: Emergency Profile Card ---
+  const hasAllergies = data.allergies && data.allergies.trim().length > 0
+  const hasConditions = data.medical_conditions && data.medical_conditions.trim().length > 0
+  const hasMedications = data.current_medications && data.current_medications.trim().length > 0
+  const hasNotes = data.emergency_notes && data.emergency_notes.trim().length > 0
+
+  return (
+    <div className="min-h-screen bg-slate-50">
+      {/* Emergency header bar */}
+      <div className="sticky top-0 z-10 bg-emerald-600 px-4 py-3 text-center text-white shadow-md">
+        <div className="mx-auto flex max-w-2xl items-center justify-center gap-2">
+          <Heart className="h-5 w-5 fill-white" />
+          <p className="text-sm font-semibold uppercase tracking-wide">Emergency Medical Profile</p>
+        </div>
+      </div>
+
+      <div className="mx-auto max-w-2xl px-4 pb-10 pt-6">
+        {/* Patient Name */}
+        <div className="mb-5 text-center">
+          <div className="mx-auto mb-3 flex h-20 w-20 items-center justify-center rounded-full bg-emerald-100">
+            <User className="h-10 w-10 text-emerald-600" />
+          </div>
+          <h1 className="text-3xl font-extrabold text-slate-900">
+            {data.full_name || 'Patient'}
+          </h1>
+          {data.blood_group && (
+            <div className="mt-2 inline-flex items-center gap-2 rounded-full bg-emerald-50 px-5 py-1.5">
+              <span className="text-sm font-medium text-slate-500">Blood Group:</span>
+              <span className="text-xl font-bold text-emerald-700">{data.blood_group}</span>
+            </div>
+          )}
+        </div>
+
+        {/* Info Card */}
+        <div className="space-y-4">
+          {/* Allergies */}
+          {hasAllergies && (
+            <InfoSection
+              title="Allergies"
+              content={data.allergies!}
+              accent="border-l-amber-400 bg-amber-50"
+            />
+          )}
+
+          {/* Medical Conditions */}
+          {hasConditions && (
+            <InfoSection
+              title="Medical Conditions"
+              content={data.medical_conditions!}
+              accent="border-l-red-400 bg-red-50"
+            />
+          )}
+
+          {/* Current Medications */}
+          {hasMedications && (
+            <InfoSection
+              title="Current Medications"
+              content={data.current_medications!}
+              accent="border-l-blue-400 bg-blue-50"
+            />
+          )}
+        </div>
+
+        {/* Emergency Contact */}
+        {(data.emergency_contact_name || data.emergency_contact_phone) && (
+          <ContactCard
+            title="Emergency Contact"
+            name={data.emergency_contact_name ?? undefined}
+            phone={data.emergency_contact_phone ?? undefined}
+          />
+        )}
+
+        {/* Doctor */}
+        {(data.doctor_name || data.doctor_phone) && (
+          <ContactCard
+            title="Doctor"
+            name={data.doctor_name ?? undefined}
+            phone={data.doctor_phone ?? undefined}
+          />
+        )}
+
+        {/* Emergency Notes */}
+        {hasNotes && (
+          <div className="mt-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+            <h3 className="mb-2 text-sm font-bold uppercase tracking-wide text-slate-500">
+              Emergency Notes
+            </h3>
+            <p className="whitespace-pre-wrap text-base leading-relaxed text-slate-800">
+              {data.emergency_notes}
+            </p>
+          </div>
+        )}
+
+        {/* Footer */}
+        <div className="mt-8 text-center text-xs text-slate-400">
+          <p>This profile was shared via a secure QR code.</p>
+          <p className="mt-0.5">Generated by HealthVault AI</p>
+        </div>
+      </div>
+    </div>
   )
 }
 
-function Field({
-  label,
-  value,
-  onChange,
-  type = 'text',
-  disabled,
+// --- Sub-components ---
+
+function InfoSection({
+  title,
+  content,
+  accent,
 }: {
-  label: string
-  value: string
-  onChange: (v: string) => void
-  type?: string
-  disabled?: boolean
+  title: string
+  content: string
+  accent: string
 }) {
   return (
-    <label className='block'>
-      <span className='mb-1.5 block text-xs font-semibold'>{label}</span>
-      <input
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        type={type}
-        disabled={disabled}
-        className='w-full rounded-xl border border-[#E5E7EB] bg-white px-3 py-2.5 text-sm outline-none focus:border-[var(--brand)] focus:ring-2 focus:ring-blue-100 disabled:bg-slate-50 disabled:opacity-70'
-      />
-    </label>
+    <div
+      className={`rounded-xl border border-slate-200 border-l-4 bg-white p-5 shadow-sm ${accent}`}
+    >
+      <h3 className="mb-1.5 text-sm font-bold uppercase tracking-wide text-slate-500">{title}</h3>
+      <p className="whitespace-pre-wrap text-base leading-relaxed text-slate-800">{content}</p>
+    </div>
   )
 }
 
-function Textarea({
-  label,
-  value,
-  onChange,
-  disabled,
+function ContactCard({
+  title,
+  name,
+  phone,
 }: {
-  label: string
-  value: string
-  onChange: (v: string) => void
-  disabled?: boolean
+  title: string
+  name?: string
+  phone?: string
 }) {
+  const hasPhone = phone && phone.trim().length > 0
+  const hasName = name && name.trim().length > 0
+
+  if (!hasName && !hasPhone) return null
+
   return (
-    <label className='block'>
-      <span className='mb-1.5 block text-xs font-semibold'>{label}</span>
-      <textarea
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        rows={4}
-        disabled={disabled}
-        className='w-full resize-none rounded-xl border border-[#E5E7EB] bg-white px-3 py-2.5 text-sm outline-none focus:border-[var(--brand)] focus:ring-2 focus:ring-blue-100 disabled:bg-slate-50 disabled:opacity-70'
-      />
-    </label>
+    <div className="mt-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+      <h3 className="mb-3 text-sm font-bold uppercase tracking-wide text-slate-500">{title}</h3>
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          {hasName && (
+            <p className="text-lg font-semibold text-slate-900">{name}</p>
+          )}
+          {hasPhone && (
+            <p className="mt-0.5 text-base text-slate-600">{phone}</p>
+          )}
+        </div>
+        {hasPhone && (
+          <a
+            href={`tel:${phone!.replace(/[\s\-\(\)]/g, '')}`}
+            className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-emerald-600 px-6 py-3 text-base font-bold text-white shadow-sm transition active:bg-emerald-700 sm:text-lg"
+          >
+            <Phone className="h-5 w-5 fill-white" />
+            Call
+          </a>
+        )}
+      </div>
+    </div>
   )
 }
-
 
