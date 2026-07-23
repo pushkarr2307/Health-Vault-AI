@@ -12,7 +12,7 @@ export const Route = createFileRoute("/login")({
 
 function LoginPage() {
   const navigate = useNavigate();
-  const { signIn, signUp, session, loading } = useAuth();
+  const { signIn, signUp, signInWithGoogle, session, loading } = useAuth();
 
   const [loginEmail, setLoginEmail] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
@@ -26,6 +26,17 @@ function LoginPage() {
   const [regBusy, setRegBusy] = useState(false);
   const [regError, setRegError] = useState<string | null>(null);
   const [regSuccess, setRegSuccess] = useState<string | null>(null);
+
+  const [googleBusy, setGoogleBusy] = useState(false);
+
+  const handleGoogleSignIn = async () => {
+    setGoogleBusy(true);
+    try {
+      await signInWithGoogle();
+    } catch {
+      setGoogleBusy(false);
+    }
+  };
 
   useEffect(() => {
     if (!loading && session) {
@@ -102,19 +113,18 @@ function LoginPage() {
                 <div className="h-px flex-1 bg-[#E5E7EB]" /> or continue with <div className="h-px flex-1 bg-[#E5E7EB]" />
               </div>
               <div className="flex items-center justify-center gap-3">
-                {[
-                  "https://www.svgrepo.com/show/475656/google-color.svg",
-                  "https://www.svgrepo.com/show/494331/apple-round.svg",
-                  "https://www.svgrepo.com/show/452213/microsoft.svg",
-                ].map((src) => (
-                  <button
-                    key={src}
-                    type="button"
-                    className="flex h-11 w-11 items-center justify-center rounded-xl border border-[#E5E7EB] bg-white hover:bg-slate-50"
-                  >
-                    <img src={src} alt="" className="h-5 w-5" />
-                  </button>
-                ))}
+                <button
+                  type="button"
+                  disabled={googleBusy}
+                  onClick={handleGoogleSignIn}
+                  className="flex h-11 w-11 items-center justify-center rounded-xl border border-[#E5E7EB] bg-white hover:bg-slate-50 disabled:opacity-60"
+                >
+                  {googleBusy ? (
+                    <svg className="h-5 w-5 animate-spin text-[var(--muted-ink)]" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                  ) : (
+                    <img src="https://www.svgrepo.com/show/475656/google-color.svg" alt="Sign in with Google" className="h-5 w-5" />
+                  )}
+                </button>
               </div>
               <p className="pt-2 text-center text-xs text-[var(--muted-ink)]">
                 Don't have an account? <a href="#register" className="font-semibold text-[var(--brand)]">Register</a>

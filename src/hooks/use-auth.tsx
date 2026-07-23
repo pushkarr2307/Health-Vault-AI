@@ -9,6 +9,7 @@ type AuthContextValue = {
   loading: boolean;
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
   signUp: (email: string, password: string, fullName: string) => Promise<{ error: string | null }>;
+  signInWithGoogle: () => Promise<void>;
   signOut: () => Promise<void>;
 };
 
@@ -24,10 +25,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setSession(data.session);
       setLoading(false);
     });
-    const { data: sub } = supabase.auth.onAuthStateChange((event, s) => {
+    const { data: sub } = supabase.auth.onAuthStateChange(async (event, s) => {
       setSession(s);
       if (event === "SIGNED_IN" || event === "SIGNED_OUT" || event === "USER_UPDATED") {
         router.invalidate();
+      }
+      if (event === "SIGNED_IN" && s?.user) {
+        const user = s.user;
+        const { data: existingProfile } = await supabase
+          .from("profiles")
+          .select("*")
+          .eq("id", user.id)
+          .maybeSingle();
+        if (!existingProfile) {
+          await supabase.from("profiles").upsert({
+            id: user.id,
+            full_name: user.user_metadata?.full_name ?? null,
+            email: user.email ?? null,
+            avatar_url: user.user_metadata?.avatar_url ?? null,
+          });
+        }
       }
     });
     return () => sub.subscription.unsubscribe();
@@ -51,6 +68,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         },
       });
       return { error: error?.message ?? null };
+    },
+    signInWithGoogle: async () => {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo: window.location.origin,
+        },
+      });
+      if (error) throw error;
     },
     signOut: async () => {
       await supabase.auth.signOut();
